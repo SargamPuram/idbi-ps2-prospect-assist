@@ -1,0 +1,31 @@
+# Node.js
+node_modules/
+dist/
+dist-ssr/
+build/
+.env
+.env.local
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+env/
+ENV/
+
+# Generated data & trained model artifacts — regenerate via scripts/generate_data.py + scripts/train_and_score.py
+data/
+models/
+*.joblib
+*.pkl
+
+# Logs
+*.log
+
+# IDE / OS
+.vscode/
+.idea/
+Thumbs.db
