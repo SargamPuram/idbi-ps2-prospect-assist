@@ -5,8 +5,8 @@ import LeadDetails from './pages/LeadDetails';
 import Analytics from './pages/Analytics';
 
 function App() {
-  // Use VITE_BASE_PATH if available (for production deployment), else default to /
-  const basename = import.meta.env.VITE_BASE_PATH || '/';
+  // Vite auto-populates BASE_URL from vite.config.js's `base` at build time — no env var needed.
+  const basename = import.meta.env.BASE_URL;
   
   return (
     <Router basename={basename}>
