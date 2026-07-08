@@ -9,5 +9,5 @@ joblib==1.4.2
 faker==33.1.0
 python-multipart==0.0.19
 scipy==1.13.1
-google-genai==2.10.0
+httpx==0.28.1
 python-dotenv==1.0.1

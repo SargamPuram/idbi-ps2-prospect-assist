@@ -2,18 +2,21 @@ import os
 import json
 import pandas as pd
 import numpy as np
+import httpx
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
-from google import genai
-from google.genai import types as genai_types
 
 load_dotenv()
-GEMINI_API_KEY = (os.getenv("GEMINI_API_KEY") or "").strip()
-GEMINI_MODEL = (os.getenv("GEMINI_MODEL") or "gemini-2.5-flash").strip()
-_gemini_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
+DEEPSEEK_API_KEY = (os.getenv("DEEPSEEK_API_KEY") or "").strip()
+DEEPSEEK_MODEL = (os.getenv("DEEPSEEK_MODEL") or "deepseek-v4-flash").strip()
+_deepseek_client = httpx.Client(
+    base_url="https://api.deepseek.com",
+    headers={"Authorization": f"Bearer {DEEPSEEK_API_KEY}", "Content-Type": "application/json"},
+    timeout=30.0,
+) if DEEPSEEK_API_KEY else None
 
 # Resolve the data directory relative to this file's location (backend/data),
 # so the app works regardless of the current working directory it's launched
@@ -288,7 +291,7 @@ def generate_recommendation(customer_id: str):
 
     recommended = lead["products_viewed"] if lead["products_viewed"] != "None" else "Personal Loan"
 
-    if _gemini_client is None:
+    if _deepseek_client is None:
         return {
             "script": f"Hi {lead['name']}, this is your RM from IDBI Bank. I noticed you were exploring our {recommended} options online recently. I'd love to help you get the best interest rate.",
             "reasons": [
@@ -312,13 +315,16 @@ def generate_recommendation(customer_id: str):
     """
 
     try:
-        config = genai_types.GenerateContentConfig(
-            thinking_config=genai_types.ThinkingConfig(thinking_budget=0)
-        )
-        response = _gemini_client.models.generate_content(
-            model=GEMINI_MODEL, contents=prompt, config=config
-        )
-        text = response.text
+        payload = {
+            "model": DEEPSEEK_MODEL,
+            "messages": [{"role": "user", "content": prompt}],
+            "thinking": {"type": "enabled"},
+            "reasoning_effort": "high",
+            "stream": False,
+        }
+        resp = _deepseek_client.post("/chat/completions", json=payload)
+        resp.raise_for_status()
+        text = resp.json()["choices"][0]["message"]["content"]
         # Extract JSON block
         if "```json" in text:
             text = text.split("```json")[1].split("```")[0].strip()
