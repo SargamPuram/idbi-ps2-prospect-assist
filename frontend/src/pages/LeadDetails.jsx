@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
+import ReactMarkdown from 'react-markdown';
 import apiClient from '../api/client';
 import { ArrowLeft, TrendingUp, Home, Book, Activity, Users } from 'lucide-react';
 import {
@@ -17,6 +18,23 @@ const EVENT_ICONS = {
 
 const SCORE_COLORS = { Hot: '#f97316', Warm: '#eab308', Cold: '#64748b' };
 const EXPENSE_COLORS = ['#3b82f6', '#8b5cf6', '#10b981', '#f97316'];
+
+// Gemini-generated RM script/reasons may contain markdown (e.g. **bold**).
+// Render inline so it drops into existing <p>/<li> wrappers without adding
+// its own block-level margins, keeping the surrounding Tailwind typography.
+function InlineMarkdown({ text }) {
+  return (
+    <ReactMarkdown
+      components={{
+        p: ({ children }) => <>{children}</>,
+        strong: ({ children }) => <strong className="font-semibold text-white">{children}</strong>,
+        em: ({ children }) => <em className="italic">{children}</em>,
+      }}
+    >
+      {text}
+    </ReactMarkdown>
+  );
+}
 
 function ScoreDial({ label, value, accent }) {
   return (
@@ -272,11 +290,15 @@ export default function LeadDetails() {
         </div>
         {recommendation && (
           <div className="border-t border-gray-800 pt-4">
-            <p className="text-sm text-gray-300 italic mb-3">&ldquo;{recommendation.script}&rdquo;</p>
+            <p className="text-sm text-gray-300 italic mb-3">
+              &ldquo;<InlineMarkdown text={recommendation.script} />&rdquo;
+            </p>
             <p className="text-xs text-gray-500 uppercase mb-2">Why this product fits</p>
             <ul className="list-disc list-inside text-sm text-gray-300 space-y-1">
               {recommendation.reasons.map((r, i) => (
-                <li key={i}>{r}</li>
+                <li key={i}>
+                  <InlineMarkdown text={r} />
+                </li>
               ))}
             </ul>
           </div>
