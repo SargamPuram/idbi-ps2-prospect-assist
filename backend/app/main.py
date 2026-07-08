@@ -2,11 +2,18 @@ import os
 import json
 import pandas as pd
 import numpy as np
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
-import google.generativeai as genai
+from google import genai
+from google.genai import types as genai_types
+
+load_dotenv()
+GEMINI_API_KEY = (os.getenv("GEMINI_API_KEY") or "").strip()
+GEMINI_MODEL = (os.getenv("GEMINI_MODEL") or "gemini-2.5-flash").strip()
+_gemini_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 
 # Resolve the data directory relative to this file's location (backend/data),
 # so the app works regardless of the current working directory it's launched
@@ -241,36 +248,45 @@ def get_lead_spending(customer_id: str):
     
     return sorted(categories, key=lambda x: x["value"], reverse=True)
 
-class RecommendRequest(BaseModel):
-    api_key: str
-
 @app.post("/recommend/{customer_id}")
-def generate_recommendation(customer_id: str, payload: RecommendRequest):
+def generate_recommendation(customer_id: str):
     lead = df[df['customer_id'] == customer_id]
     if len(lead) == 0:
         raise HTTPException(status_code=404, detail="Customer not found")
     lead = lead.iloc[0].to_dict()
-    
-    genai.configure(api_key=payload.api_key)
-    model = genai.GenerativeModel('gemini-1.5-flash')
-    
+
     recommended = lead["products_viewed"] if lead["products_viewed"] != "None" else "Personal Loan"
-    
+
+    if _gemini_client is None:
+        return {
+            "script": f"Hi {lead['name']}, this is your RM from IDBI Bank. I noticed you were exploring our {recommended} options online recently. I'd love to help you get the best interest rate.",
+            "reasons": [
+                f"Customer frequently visited {recommended} pages.",
+                "Has sufficient disposable income for EMI.",
+                "Strong past relationship with IDBI."
+            ]
+        }
+
     prompt = f"""
     You are an AI assistant helping a bank Relationship Manager pitch a loan.
     Customer Name: {lead['name']}
     Age: {lead['age']}, Occupation: {lead['occupation']}
     Recommended Product: {recommended}
     Behavior: Visited loan pages {lead['loan_page_visits']} times. Used calculator: {lead['loan_calculator_usage']>0}.
-    
+
     Generate:
     1. A short, highly personalized 3-sentence script for the RM to say on a phone call.
     2. 3 bullet points on 'Why this product fits'.
     Format as JSON: {{"script": "...", "reasons": ["...", "..."]}}
     """
-    
+
     try:
-        response = model.generate_content(prompt)
+        config = genai_types.GenerateContentConfig(
+            thinking_config=genai_types.ThinkingConfig(thinking_budget=0)
+        )
+        response = _gemini_client.models.generate_content(
+            model=GEMINI_MODEL, contents=prompt, config=config
+        )
         text = response.text
         # Extract JSON block
         if "```json" in text:

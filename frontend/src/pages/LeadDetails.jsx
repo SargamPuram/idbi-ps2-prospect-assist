@@ -95,7 +95,7 @@ export default function LeadDetails() {
   async function generateScript() {
     setRecLoading(true);
     try {
-      const res = await apiClient.post(`/recommend/${id}`, { api_key: '' });
+      const res = await apiClient.post(`/recommend/${id}`);
       setRecommendation(res.data);
     } catch (err) {
       console.error('Failed to generate recommendation:', err);
