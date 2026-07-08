@@ -65,6 +65,59 @@ df['atm_withdrawals_count'] = np.random.poisson(lam=2, size=NUM_CUSTOMERS)
 df['atm_withdrawals_amount'] = df['atm_withdrawals_count'] * np.random.normal(2000, 500, NUM_CUSTOMERS).astype(int)
 df['atm_withdrawals_amount'] = np.clip(df['atm_withdrawals_amount'], 0, None)
 
+# 3b. Salary Credit Velocity / Spend Discipline (day-level derived signal)
+# IDBI's own worked example of poor financial discipline: salary credited on day
+# one, entire balance spent almost immediately. The rollup above only has 6-month
+# totals, so rather than generating a full daily transaction ledger we derive a
+# compact day-level signal per customer directly: the day of month income lands,
+# what % of it is spent within 3 days of credit, and how many days it takes for
+# the balance to fall back near a low threshold. The spend-within-3-days figure
+# is correlated with each customer's own discretionary (wants/entertainment/travel)
+# spend intensity from the UPI categories above, so it reflects real behavior
+# instead of being pure noise.
+print("Generating salary-credit velocity / spend-discipline signals...")
+df['salary_credit_day_of_month'] = np.where(
+    df['employment_type'] == 'Salaried',
+    np.random.choice([1, 1, 1, 2, 3, 5, 28], NUM_CUSTOMERS),
+    np.random.randint(1, 29, NUM_CUSTOMERS)
+)
+
+income_for_velocity = np.where(df['employment_type'] == 'Salaried', df['salary_credits'], df['other_income_credits'])
+income_for_velocity = np.clip(income_for_velocity, 1, None)
+discretionary_spend = (df['upi_food_dining'] + df['upi_shopping'] + df['upi_entertainment'] + df['upi_travel'])
+discretionary_ratio = discretionary_spend / income_for_velocity
+
+pct_spent_within_3_days = 0.12 + discretionary_ratio * 0.85 + np.random.normal(0, 0.08, NUM_CUSTOMERS)
+df['pct_income_spent_within_3_days'] = np.round(np.clip(pct_spent_within_3_days, 0.02, 0.98), 3)
+
+days_to_balance_depletion = 28 * (1 - df['pct_income_spent_within_3_days']) + np.random.normal(0, 2, NUM_CUSTOMERS)
+df['days_to_balance_depletion'] = np.clip(np.round(days_to_balance_depletion), 1, 28).astype(int)
+
+# Red flag: most of the month's income gone within days of being credited AND
+# the balance depletes fast -- exactly the pattern IDBI flagged as poor discipline.
+df['low_financial_discipline_flag'] = (
+    (df['pct_income_spent_within_3_days'] > 0.60) & (df['days_to_balance_depletion'] <= 6)
+).astype(int)
+
+# 3c. Data completeness signals (feeds the data-quality/confidence flag)
+# Not every prospect has a deep, reliable data trail: some are new-to-bank (few
+# months of transaction history), and gig/self-employed customers are genuinely
+# more likely to lack a traditional credit bureau file -- exactly the
+# "unreliable/unverifiable data" concern IDBI raised in the Q&A.
+print("Generating data-completeness / confidence signals...")
+base_months = np.where(df['account_tenure_years'] >= 2, 6, np.random.randint(3, 7, NUM_CUSTOMERS))
+thin_history_roll = np.random.random(NUM_CUSTOMERS)
+df['months_of_data_available'] = np.where(
+    thin_history_roll < 0.12, np.random.randint(1, 4, NUM_CUSTOMERS), base_months
+).astype(int)
+
+thin_credit_prob = np.select(
+    [df['employment_type'] == 'Salaried', df['employment_type'] == 'Self-employed'],
+    [0.03, 0.10],
+    default=0.18,
+)
+df['credit_bureau_available'] = (np.random.random(NUM_CUSTOMERS) >= thin_credit_prob).astype(int)
+
 # Life Events (Propensity Signals)
 df['salary_hike_detected'] = np.random.choice([0, 1], NUM_CUSTOMERS, p=[0.9, 0.1])
 df['new_rent_payment'] = np.random.choice([0, 1], NUM_CUSTOMERS, p=[0.95, 0.05])

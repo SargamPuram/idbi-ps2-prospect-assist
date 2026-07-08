@@ -164,7 +164,7 @@ def get_lead_details(customer_id: str):
         life_events.append({"event": "Marriage Indicators", "icon": "users", "description": "Jewelry/Event spending detected."})
         
     recommended = lead["products_viewed"] if lead["products_viewed"] != "None" else "Personal Loan"
-    
+
     return {
         "profile": {
             "customer_id": lead["customer_id"],
@@ -190,6 +190,37 @@ def get_lead_details(customer_id: str):
             "application_started": bool(lead["application_started_not_completed"])
         },
         "life_events": life_events,
+        # Need/want/retained-for-savings cash-flow segmentation (see
+        # scoring/models.py::calculate_cash_flow_segments) -- IDBI's own PS2
+        # pitch calls for segmenting gig/self-employed cash flow this way
+        # instead of a static FOIR ratio, using UPI-derived signals.
+        "cash_flow_segmentation": {
+            "need_ratio": float(lead.get("need_ratio", 0)),
+            "want_ratio": float(lead.get("want_ratio", 0)),
+            "retained_income_ratio": float(lead.get("retained_income_ratio", 0)),
+            "active_savings_ratio": float(lead.get("active_savings_ratio", 0)),
+        },
+        # Salary-credit velocity / spend-discipline red flag: IDBI's own worked
+        # example of poor financial discipline ("salary credited day one, entire
+        # balance spent immediately"), detected from intra-month timing signals
+        # rather than monthly totals.
+        "spend_discipline": {
+            "discipline_score": float(lead.get("discipline_score", 0)),
+            "low_financial_discipline_flag": bool(lead.get("low_financial_discipline_flag", 0)),
+            "salary_credit_day_of_month": int(lead.get("salary_credit_day_of_month", 0)),
+            "pct_income_spent_within_3_days": float(lead.get("pct_income_spent_within_3_days", 0)),
+            "days_to_balance_depletion": int(lead.get("days_to_balance_depletion", 0)),
+        },
+        # Data-quality/confidence flag, same pattern as PS3's confidence_level:
+        # how many independent, reasonably fresh data sources are actually
+        # available for this customer (addresses IDBI's Q&A concern about
+        # unreliable/unverifiable/thin data).
+        "data_quality": {
+            "confidence_level": lead.get("confidence_level", "Low"),
+            "data_completeness_score": float(lead.get("data_completeness_score", 0)),
+            "months_of_data_available": int(lead.get("months_of_data_available", 0)),
+            "credit_bureau_available": bool(lead.get("credit_bureau_available", 0)),
+        },
         "recommendation": {
             "product": recommended,
             "estimated_amount": int(lead["loan_amount_taken"]) if lead["loan_amount_taken"] > 0 else 500000,
