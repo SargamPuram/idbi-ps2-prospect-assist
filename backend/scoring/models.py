@@ -6,9 +6,22 @@ import joblib
 # already existed in scoring/constants.py (written for an earlier, more detailed version
 # of this pipeline) but were unused by this module. Reused here instead of re-deriving
 # a new set of category groupings from scratch.
-from constants import (
-    EMI_CATEGORIES, INVESTMENT_CATEGORIES, LUXURY_CATEGORIES, NEEDS_CATEGORIES, WANTS_CATEGORIES,
-)
+try:
+    from constants import (
+        EMI_CATEGORIES, INVESTMENT_CATEGORIES, LUXURY_CATEGORIES, NEEDS_CATEGORIES,
+        RAG_HOT_THRESHOLD, RAG_WARM_THRESHOLD, WANTS_CATEGORIES,
+    )
+except ImportError:
+    # scripts/train_and_score.py and app/main.py both run with `backend/scoring`
+    # on sys.path directly (see their own imports), so `import constants` resolves
+    # fine there. Under pytest (invoked from the repo root against `backend/`),
+    # this module is imported as `scoring.models`, so the sibling module is
+    # `scoring.constants` instead. Try both rather than forcing callers to fix
+    # up sys.path just to import this module.
+    from scoring.constants import (
+        EMI_CATEGORIES, INVESTMENT_CATEGORIES, LUXURY_CATEGORIES, NEEDS_CATEGORIES,
+        RAG_HOT_THRESHOLD, RAG_WARM_THRESHOLD, WANTS_CATEGORIES,
+    )
 
 
 def _get_income(row):
@@ -167,6 +180,23 @@ def calculate_propensity_score(row):
 
     return np.clip(score, 0, 100)
 
+def classify_rag_status(composite_score):
+    """
+    Pure boundary classifier for a single composite score -> RAG (Hot/Warm/Cold)
+    status, using the same RAG_HOT_THRESHOLD/RAG_WARM_THRESHOLD constants
+    (scoring/constants.py) that drive the vectorized np.select version inside
+    calculate_scores() below. Both must always agree -- pulled out as its own
+    function so the boundary itself (>=75 Hot, >=50 Warm, else Cold) can be
+    exercised directly in tests without needing a full dataframe + trained
+    intent model.
+    """
+    if composite_score >= RAG_HOT_THRESHOLD:
+        return 'Hot'
+    if composite_score >= RAG_WARM_THRESHOLD:
+        return 'Warm'
+    return 'Cold'
+
+
 def calculate_scores(df, intent_model):
     # Intent Score (0-100)
     intent_features = ['loan_page_visits', 'loan_calculator_usage', 'time_on_loan_pages', 'application_started_not_completed', 'last_visit_days_ago']
@@ -202,14 +232,10 @@ def calculate_scores(df, intent_model):
     # Composite Score
     df['composite_score'] = (0.40 * df['intent_score']) + (0.35 * df['capacity_score']) + (0.25 * df['propensity_score'])
 
-    # RAG Status
-    conditions = [
-        (df['composite_score'] >= 75),
-        (df['composite_score'] >= 50),
-        (df['composite_score'] < 50)
-    ]
-    choices = ['Hot', 'Warm', 'Cold']
-    df['rag_status'] = np.select(conditions, choices)
+    # RAG Status -- see classify_rag_status() for the boundary logic (kept as
+    # its own pure function so it can be unit-tested at the exact 75/50
+    # cutoffs without needing a full dataframe + trained intent model).
+    df['rag_status'] = df['composite_score'].apply(classify_rag_status)
 
     # Format and round
     for col in ['intent_score', 'capacity_score', 'propensity_score', 'composite_score']:

@@ -9,6 +9,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
 
+from scoring.safety import sanitize_lead_fields
+
 load_dotenv()
 DEEPSEEK_API_KEY = (os.getenv("DEEPSEEK_API_KEY") or "").strip()
 DEEPSEEK_MODEL = (os.getenv("DEEPSEEK_MODEL") or "deepseek-v4-flash").strip()
@@ -291,11 +293,26 @@ def generate_recommendation(customer_id: str):
 
     recommended = lead["products_viewed"] if lead["products_viewed"] != "None" else "Personal Loan"
 
+    # Pre-LLM defensive check (see scoring/safety.py). These three values come
+    # from the synthetic dataset via a customer_id lookup rather than raw
+    # free-text user input, but they still cross the boundary into an LLM
+    # prompt below, so they're validated/sanitized the same way any untrusted
+    # string would be before interpolation -- defense in depth, not a claim
+    # that this endpoint is high-risk today.
+    safe_fields = sanitize_lead_fields(
+        name=lead.get("name"),
+        occupation=lead.get("occupation"),
+        recommended_product=recommended,
+    )
+    safe_name = safe_fields["name"]
+    safe_occupation = safe_fields["occupation"]
+    safe_recommended = safe_fields["recommended_product"]
+
     if _deepseek_client is None:
         return {
-            "script": f"Hi {lead['name']}, this is your RM from IDBI Bank. I noticed you were exploring our {recommended} options online recently. I'd love to help you get the best interest rate.",
+            "script": f"Hi {safe_name}, this is your RM from IDBI Bank. I noticed you were exploring our {safe_recommended} options online recently. I'd love to help you get the best interest rate.",
             "reasons": [
-                f"Customer frequently visited {recommended} pages.",
+                f"Customer frequently visited {safe_recommended} pages.",
                 "Has sufficient disposable income for EMI.",
                 "Strong past relationship with IDBI."
             ]
@@ -303,9 +320,9 @@ def generate_recommendation(customer_id: str):
 
     prompt = f"""
     You are an AI assistant helping a bank Relationship Manager pitch a loan.
-    Customer Name: {lead['name']}
-    Age: {lead['age']}, Occupation: {lead['occupation']}
-    Recommended Product: {recommended}
+    Customer Name: {safe_name}
+    Age: {lead['age']}, Occupation: {safe_occupation}
+    Recommended Product: {safe_recommended}
     Behavior: Visited loan pages {lead['loan_page_visits']} times. Used calculator: {lead['loan_calculator_usage']>0}.
 
     Generate:
@@ -334,9 +351,9 @@ def generate_recommendation(customer_id: str):
         return json.loads(text)
     except Exception as e:
         return {
-            "script": f"Hi {lead['name']}, this is your RM from IDBI Bank. I noticed you were exploring our {recommended} options online recently. I'd love to help you get the best interest rate.",
+            "script": f"Hi {safe_name}, this is your RM from IDBI Bank. I noticed you were exploring our {safe_recommended} options online recently. I'd love to help you get the best interest rate.",
             "reasons": [
-                f"Customer frequently visited {recommended} pages.",
+                f"Customer frequently visited {safe_recommended} pages.",
                 "Has sufficient disposable income for EMI.",
                 "Strong past relationship with IDBI."
             ]
